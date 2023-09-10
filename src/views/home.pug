@@ -8,6 +8,13 @@ html(lang="en")
     body 
         header
             h1 Noom
-        main
-            h2 Welcome to Noom
+
+        main 
+            form#nick
+                input(type="text", placeholder="choose a nickname", required)
+                button Save
+            ul
+            form#message
+                input(type="text", placeholder="write a message", required)
+                button Send
         script(src="/public/js/app.js") 
