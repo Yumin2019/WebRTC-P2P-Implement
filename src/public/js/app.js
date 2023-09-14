@@ -88,6 +88,14 @@ function handleCameraClick() {
 
 async function handleCameaChange() {
   await getMedia(camearsSelect.value);
+  if (myPeerConnection) {
+    const videoTrack = myStream.getVideoTracks()[0];
+    const videoSender = myPeerConnection
+      .getSenders()
+      .find((sender) => sender.track.kind === "video");
+
+    videoSender.replaceTrack(videoTrack);
+  }
 }
 
 muteBtn.addEventListener("click", handleMuteClick);
@@ -150,7 +158,16 @@ socket.on("ice", (ice) => {
 
 // RTC code
 function makeConnection() {
-  myPeerConnection = new RTCPeerConnection();
+  myPeerConnection = new RTCPeerConnection({
+    iceServers: [
+      {
+        urls: ["turn:13.250.13.83:3478?transport=udp"],
+        username: "YzYNCouZM1mhqhmseWk6",
+        credential: "YzYNCouZM1mhqhmseWk6",
+      },
+    ],
+  });
+  myPeerConnection.addEventListener("track", handleTrack);
   myPeerConnection.addEventListener("icecandidate", handleIce);
   myPeerConnection.addEventListener("addstream", handleAddStream);
   myStream
@@ -167,4 +184,10 @@ function handleIce(data) {
 function handleAddStream(data) {
   const peerFace = document.getElementById("peerFace");
   peerFace.srcObject = data.stream;
+}
+
+function handleTrack(data) {
+  console.log("handle track");
+  const peerFace = document.querySelector("#peerFace");
+  peerFace.srcObject = data.streams[0];
 }
