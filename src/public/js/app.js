@@ -169,14 +169,9 @@ socket.on("ice", (ice, fromId) => {
   peerMap[fromId].addIceCandidate(ice);
 });
 
-socket.on("disconnecting", (roomName) => {
-  // 종료 전에 exit_room 이벤트를 발생시킨다.
-  socket.emit("exit_room", roomName);
-});
-
 socket.on("bye", (fromId) => {
-  console.log("BYE !!! " + fromId);
   // 나간 유저의 정보를 없앤다.
+  console.log("bye " + fromId);
   peerMap[fromId] = undefined;
 
   let video = document.getElementById(`${fromId}`);
