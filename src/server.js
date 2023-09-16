@@ -15,19 +15,32 @@ const wsServer = SocketIO(httpServer);
 wsServer.on("connection", (socket) => {
   socket.on("join_room", (roomName) => {
     socket.join(roomName);
-    socket.to(roomName).emit("welcome");
+    socket.to(roomName).emit("welcome", socket.id);
   });
 
-  socket.on("offer", (offer, roomName) => {
-    socket.to(roomName).emit("offer", offer);
+  socket.on("offer", (offer, toId) => {
+    socket.to(toId).emit("offer", offer, socket.id);
   });
 
-  socket.on("answer", (answer, roomName) => {
-    socket.to(roomName).emit("answer", answer);
+  socket.on("answer", (answer, toId) => {
+    socket.to(toId).emit("answer", answer, socket.id);
   });
 
-  socket.on("ice", (ice, roomName) => {
-    socket.to(roomName).emit("ice", ice);
+  socket.on("ice", (ice, toId) => {
+    socket.to(toId).emit("ice", ice, socket.id);
+  });
+
+  socket.on("disconnecting", () => {
+    let rooms = socket.rooms;
+    rooms.delete(socket.id);
+
+    let id = socket.id;
+    console.log(`${id} left room`);
+    console.log(rooms);
+
+    rooms.forEach((room) => {
+      socket.to(room).emit("bye", id);
+    });
   });
 });
 

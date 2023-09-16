@@ -4,12 +4,13 @@ const myFace = document.getElementById("myFace");
 const muteBtn = document.getElementById("mute");
 const cameraBtn = document.getElementById("camera");
 const camearsSelect = document.getElementById("cameras");
+const streamDiv = document.querySelector("#myStream");
 
 let myStream;
 let isMuted = true;
 let isCameraOn = false;
 let roomName;
-let myPeerConnection;
+let peerMap = new Map();
 
 async function getCameras() {
   try {
@@ -88,14 +89,16 @@ function handleCameraClick() {
 
 async function handleCameaChange() {
   await getMedia(camearsSelect.value);
-  if (myPeerConnection) {
-    const videoTrack = myStream.getVideoTracks()[0];
-    const videoSender = myPeerConnection
-      .getSenders()
-      .find((sender) => sender.track.kind === "video");
+  peerMap.forEach((peerConnection) => {
+    if (peerConnection) {
+      const videoTrack = myStream.getVideoTracks()[0];
+      const videoSender = peerConnection
+        .getSenders()
+        .find((sender) => sender.track.kind === "video");
 
-    videoSender.replaceTrack(videoTrack);
-  }
+      videoSender.replaceTrack(videoTrack);
+    }
+  });
 }
 
 muteBtn.addEventListener("click", handleMuteClick);
@@ -112,7 +115,6 @@ async function initCall() {
   callDiv.hidden = false;
   welcomeDiv.hidden = true;
   await getMedia();
-  makeConnection();
 }
 
 async function handleWelcomeSubmit(event) {
@@ -128,37 +130,62 @@ const welcomeForm = welcomeDiv.querySelector("form");
 welcomeForm.addEventListener("submit", handleWelcomeSubmit);
 
 // Socket code
-socket.on("welcome", async () => {
-  console.log("someone joined");
+socket.on("welcome", async (fromId) => {
+  console.log(`${fromId} joined`);
 
-  // 들어온 놈이 실행하는 코드
-  const offer = await myPeerConnection.createOffer();
-  myPeerConnection.setLocalDescription(offer);
-  console.log("sent to the offer");
-  socket.emit("offer", offer, roomName);
+  // 새로 들어온 Client와 Connection을 생성한다. (offer를 생성하는 쪽)
+  makeConnection(fromId);
+  console.log(`made connection with ${fromId}`);
+
+  const offer = await peerMap[fromId].createOffer();
+  peerMap[fromId].setLocalDescription(offer);
+
+  console.log(`sent to the offer to ${fromId}`);
+  socket.emit("offer", offer, fromId);
 });
 
-socket.on("offer", async (offer) => {
-  myPeerConnection.setRemoteDescription(offer);
-  const answer = await myPeerConnection.createAnswer();
-  myPeerConnection.setLocalDescription(answer);
-  socket.emit("answer", answer, roomName);
-  console.log("sent the answer");
+socket.on("offer", async (offer, fromId) => {
+  console.log(`got offer from ${fromId}`);
+
+  // 새로 들어온 Client와 Connection을 생성한다. (offer를 받는 쪽)
+  makeConnection(fromId);
+  console.log(`made connection with ${fromId}`);
+
+  peerMap[fromId].setRemoteDescription(offer);
+  const answer = await peerMap[fromId].createAnswer();
+  peerMap[fromId].setLocalDescription(answer);
+
+  console.log(`sent the answer to ${fromId}`);
+  socket.emit("answer", answer, fromId);
 });
 
-socket.on("answer", (answer) => {
-  console.log("received the answer");
-  myPeerConnection.setRemoteDescription(answer);
+socket.on("answer", (answer, fromId) => {
+  console.log(`received the answer from ${fromId}`);
+  peerMap[fromId].setRemoteDescription(answer);
 });
 
-socket.on("ice", (ice) => {
-  console.log("received ice");
-  myPeerConnection.addIceCandidate(ice);
+socket.on("ice", (ice, fromId) => {
+  console.log(`received ice from ${fromId}`);
+  peerMap[fromId].addIceCandidate(ice);
+});
+
+socket.on("disconnecting", (roomName) => {
+  // 종료 전에 exit_room 이벤트를 발생시킨다.
+  socket.emit("exit_room", roomName);
+});
+
+socket.on("bye", (fromId) => {
+  console.log("BYE !!! " + fromId);
+  // 나간 유저의 정보를 없앤다.
+  peerMap[fromId] = undefined;
+
+  let video = document.getElementById(`${fromId}`);
+  streamDiv.removeChild(video);
 });
 
 // RTC code
-function makeConnection() {
-  myPeerConnection = new RTCPeerConnection({
+function makeConnection(fromId) {
+  peerMap[fromId] = new RTCPeerConnection({
     iceServers: [
       {
         urls: ["turn:13.250.13.83:3478?transport=udp"],
@@ -167,27 +194,58 @@ function makeConnection() {
       },
     ],
   });
-  myPeerConnection.addEventListener("track", handleTrack);
-  myPeerConnection.addEventListener("icecandidate", handleIce);
-  myPeerConnection.addEventListener("addstream", handleAddStream);
+
+  peerMap[fromId].addEventListener("icecandidate", (data) => {
+    handleIce(data, fromId);
+  });
+  peerMap[fromId].addEventListener("addstream", (data) => {
+    handleAddStream(data, fromId);
+  });
+  peerMap[fromId].addEventListener("track", (data) => {
+    handleTrack(data, fromId);
+  });
+
   myStream
     .getTracks()
-    .forEach((track) => myPeerConnection.addTrack(track, myStream));
+    .forEach((track) => peerMap[fromId].addTrack(track, myStream));
 }
 
-function handleIce(data) {
+function handleIce(data, fromId) {
   // send candidates to other browser
-  console.log("sent candidate");
-  socket.emit("ice", data.candidate, roomName);
+  console.log(`sent candidate to ${fromId}`);
+  socket.emit("ice", data.candidate, fromId);
 }
 
-function handleAddStream(data) {
-  const peerFace = document.getElementById("peerFace");
-  peerFace.srcObject = data.stream;
+function handleAddStream(data, fromId) {
+  let video = document.getElementById(`${fromId}`);
+  if (!video) {
+    video = document.createElement("video");
+    video.id = fromId;
+    video.width = 100;
+    video.height = 100;
+    video.autoplay = true;
+    video.playsInline = true;
+
+    streamDiv.appendChild(video);
+  }
+
+  console.log(`handleAddStream from ${fromId}`);
+  video.srcObject = data.stream;
 }
 
-function handleTrack(data) {
-  console.log("handle track");
-  const peerFace = document.querySelector("#peerFace");
-  peerFace.srcObject = data.streams[0];
+function handleTrack(data, fromId) {
+  let video = document.getElementById(`${fromId}`);
+  if (!video) {
+    video = document.createElement("video");
+    video.id = fromId;
+    video.width = 100;
+    video.height = 100;
+    video.autoplay = true;
+    video.playsInline = true;
+
+    streamDiv.appendChild(video);
+  }
+
+  console.log(`handleTrack from ${fromId}`);
+  video.srcObject = data.streams[0];
 }
