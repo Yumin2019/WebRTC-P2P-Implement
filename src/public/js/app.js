@@ -10,14 +10,18 @@ let myStream;
 let isMuted = true;
 let isCameraOn = false;
 let roomName;
-let peerMap = new Map();
+
+// 서버에서 넘겨주는 Downlink를 처리하기 위한 Map
+// Map<socketId, PeerConnection>
+let recvPeerMap = new Map();
+
+// 서버에 미디어 정보를 넘기기 위한 Peer
+let sendPeer;
 
 async function getCameras() {
   try {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const cameras = await devices.filter(
-      (device) => device.kind === "videoinput"
-    );
+    const cameras = devices.filter((device) => device.kind === "videoinput");
 
     const currentCamera = myStream.getVideoTracks()[0];
     cameras.forEach((camera) => {
@@ -89,16 +93,14 @@ function handleCameraClick() {
 
 async function handleCameaChange() {
   await getMedia(camearsSelect.value);
-  peerMap.forEach((peerConnection) => {
-    if (peerConnection) {
-      const videoTrack = myStream.getVideoTracks()[0];
-      const videoSender = peerConnection
-        .getSenders()
-        .find((sender) => sender.track.kind === "video");
+  if (sendPeer) {
+    const videoTrack = myStream.getVideoTracks()[0];
+    const videoSender = sendPeer
+      .getSenders()
+      .find((sender) => sender.track.kind === "video");
 
-      videoSender.replaceTrack(videoTrack);
-    }
-  });
+    videoSender.replaceTrack(videoTrack);
+  }
 }
 
 muteBtn.addEventListener("click", handleMuteClick);
@@ -130,57 +132,48 @@ const welcomeForm = welcomeDiv.querySelector("form");
 welcomeForm.addEventListener("submit", handleWelcomeSubmit);
 
 // Socket code
-socket.on("welcome", async (fromId) => {
-  console.log(`${fromId} joined`);
+socket.on("user_list", (idList) => {
+  console.log("user_list = " + idList.toString());
 
-  // 새로 들어온 Client와 Connection을 생성한다. (offer를 생성하는 쪽)
-  makeConnection(fromId);
-  console.log(`made connection with ${fromId}`);
+  // 아이디 정보를 바탕으로 recvPeer를 생성한다.
+  idList.forEach((id) => {
+    createRecvPeer(id);
+    creatRecvOffer(id);
+  });
 
-  const offer = await peerMap[fromId].createOffer();
-  peerMap[fromId].setLocalDescription(offer);
-
-  console.log(`sent to the offer to ${fromId}`);
-  socket.emit("offer", offer, fromId);
+  // sendPeer를 생성한다.
+  createSendPeer();
+  createSendOffer();
 });
 
-socket.on("offer", async (offer, fromId) => {
-  console.log(`got offer from ${fromId}`);
-
-  // 새로 들어온 Client와 Connection을 생성한다. (offer를 받는 쪽)
-  makeConnection(fromId);
-  console.log(`made connection with ${fromId}`);
-
-  peerMap[fromId].setRemoteDescription(offer);
-  const answer = await peerMap[fromId].createAnswer();
-  peerMap[fromId].setLocalDescription(answer);
-
-  console.log(`sent the answer to ${fromId}`);
-  socket.emit("answer", answer, fromId);
+socket.on("recvCandidate", (candidate, sendId) => {
+  recvPeerMap[sendId].addIceCandidate(candidate);
 });
 
-socket.on("answer", (answer, fromId) => {
-  console.log(`received the answer from ${fromId}`);
-  peerMap[fromId].setRemoteDescription(answer);
+socket.on("sendCandidate", (candidate) => {
+  sendPeer.addIceCandidate(candidate);
 });
 
-socket.on("ice", (ice, fromId) => {
-  console.log(`received ice from ${fromId}`);
-  peerMap[fromId].addIceCandidate(ice);
+socket.on("newStream", (id) => {
+  createRecvPeer(id);
+  creatRecvOffer(id);
 });
 
-socket.on("bye", (fromId) => {
-  // 나간 유저의 정보를 없앤다.
-  console.log("bye " + fromId);
-  peerMap[fromId] = undefined;
+function createSendOffer() {
+  console.log(`createSendOffer`);
+  const offer = sendPeer.createOffer({
+    offerToReceiveVideo: false,
+    offerToReceiveAudio: false,
+  });
 
-  let video = document.getElementById(`${fromId}`);
-  streamDiv.removeChild(video);
-});
+  sendPeer.setLocalDescription(offer);
 
-// RTC code
-function makeConnection(fromId) {
-  peerMap[fromId] = new RTCPeerConnection({
+  console.log(`send sendOffer to server`);
+  socket.emit("sendOffer", offer);
+}
+
+function createSendPeer() {
+  sendPeer = new RTCPeerConnection({
     iceServers: [
       {
         urls: ["turn:13.250.13.83:3478?transport=udp"],
@@ -190,32 +183,82 @@ function makeConnection(fromId) {
     ],
   });
 
-  peerMap[fromId].addEventListener("icecandidate", (data) => {
-    handleIce(data, fromId);
-  });
-  peerMap[fromId].addEventListener("addstream", (data) => {
-    handleAddStream(data, fromId);
-  });
-  peerMap[fromId].addEventListener("track", (data) => {
-    handleTrack(data, fromId);
+  sendPeer.addEventListener("icecandidate", (data) => {
+    console.log(`sent sendCandidate to server`);
+    socket.emit("sendCandidate", data.candidate);
   });
 
-  myStream
-    .getTracks()
-    .forEach((track) => peerMap[fromId].addTrack(track, myStream));
+  if (myStream) {
+    myStream.getTracks().forEach((track) => {
+      sendPeer.addTrack(track, myStream);
+    });
+
+    console.log("add local stream");
+  } else {
+    console.log("no local stream");
+  }
 }
 
-function handleIce(data, fromId) {
-  // send candidates to other browser
-  console.log(`sent candidate to ${fromId}`);
-  socket.emit("ice", data.candidate, fromId);
+function createRecvPeer(sendId) {
+  recvPeerMap[sendId] = new RTCPeerConnection({
+    iceServers: [
+      {
+        urls: ["turn:13.250.13.83:3478?transport=udp"],
+        username: "YzYNCouZM1mhqhmseWk6",
+        credential: "YzYNCouZM1mhqhmseWk6",
+      },
+    ],
+  });
+
+  recvPeerMap[sendId].addEventListener("icecandidate", (data) => {
+    console.log(`sent recvCandidate to server`);
+    socket.emit("recvCandidate", data.candidate, sendId);
+  });
+
+  recvPeerMap[sendId].addEventListener("track", (data) => {
+    handleTrack(data, sendId);
+  });
 }
 
-function handleAddStream(data, fromId) {
+function creatRecvOffer(sendId) {
+  console.log(`createRecvOffer sendId = ${sendId}`);
+  const offer = recvPeerMap[sendId].createOffer({
+    offerToReceiveVideo: true,
+    offerToReceiveAudio: true,
+  });
+
+  recvPeerMap[sendId].setLocalDescription(offer);
+
+  console.log(`send recvOffer to server`);
+  socket.emit("recvOffer", offer, sendId);
+}
+
+socket.on("sendAnswer", (answer) => {
+  sendPeer.setRemoteDescription(answer);
+});
+
+socket.on("recvAnswer", (answer, sendId) => {
+  recvPeerMap[sendId].setRemoteDescription(answer);
+});
+
+socket.on("bye", (fromId) => {
+  // 나간 유저의 정보를 없앤다.
+  console.log("bye " + fromId);
+  peerMap[fromId] = undefined;
+
+  recvPeerMap[fromId].close();
+  recvPeerMap[fromId] = null;
+
   let video = document.getElementById(`${fromId}`);
+  streamDiv.removeChild(video);
+});
+
+// RTC code
+function handleTrack(data, sendId) {
+  let video = document.getElementById(`${sendId}`);
   if (!video) {
     video = document.createElement("video");
-    video.id = fromId;
+    video.id = sendId;
     video.width = 100;
     video.height = 100;
     video.autoplay = true;
@@ -224,23 +267,6 @@ function handleAddStream(data, fromId) {
     streamDiv.appendChild(video);
   }
 
-  console.log(`handleAddStream from ${fromId}`);
-  video.srcObject = data.stream;
-}
-
-function handleTrack(data, fromId) {
-  let video = document.getElementById(`${fromId}`);
-  if (!video) {
-    video = document.createElement("video");
-    video.id = fromId;
-    video.width = 100;
-    video.height = 100;
-    video.autoplay = true;
-    video.playsInline = true;
-
-    streamDiv.appendChild(video);
-  }
-
-  console.log(`handleTrack from ${fromId}`);
+  console.log(`handleTrack from ${sendId}`);
   video.srcObject = data.streams[0];
 }
