@@ -137,8 +137,8 @@ socket.on("welcome", async (fromId) => {
   makeConnection(fromId);
   console.log(`made connection with ${fromId}`);
 
-  const offer = await peerMap[fromId].createOffer();
-  peerMap[fromId].setLocalDescription(offer);
+  const offer = await peerMap.get(fromId).createOffer();
+  peerMap.get(fromId).setLocalDescription(offer);
 
   console.log(`sent to the offer to ${fromId}`);
   socket.emit("offer", offer, fromId);
@@ -151,9 +151,9 @@ socket.on("offer", async (offer, fromId) => {
   makeConnection(fromId);
   console.log(`made connection with ${fromId}`);
 
-  peerMap[fromId].setRemoteDescription(offer);
-  const answer = await peerMap[fromId].createAnswer();
-  peerMap[fromId].setLocalDescription(answer);
+  peerMap.get(fromId).setRemoteDescription(offer);
+  const answer = await peerMap.get(fromId).createAnswer();
+  peerMap.get(fromId).setLocalDescription(answer);
 
   console.log(`sent the answer to ${fromId}`);
   socket.emit("answer", answer, fromId);
@@ -161,18 +161,19 @@ socket.on("offer", async (offer, fromId) => {
 
 socket.on("answer", (answer, fromId) => {
   console.log(`received the answer from ${fromId}`);
-  peerMap[fromId].setRemoteDescription(answer);
+  peerMap.get(fromId).setRemoteDescription(answer);
 });
 
 socket.on("ice", (ice, fromId) => {
   console.log(`received ice from ${fromId}`);
-  peerMap[fromId].addIceCandidate(ice);
+  peerMap.get(fromId).addIceCandidate(ice);
 });
 
 socket.on("bye", (fromId) => {
   // 나간 유저의 정보를 없앤다.
   console.log("bye " + fromId);
-  peerMap[fromId] = undefined;
+  peerMap.get(fromId).close();
+  peerMap.delete(fromId);
 
   let video = document.getElementById(`${fromId}`);
   streamDiv.removeChild(video);
@@ -180,52 +181,35 @@ socket.on("bye", (fromId) => {
 
 // RTC code
 function makeConnection(fromId) {
-  peerMap[fromId] = new RTCPeerConnection({
-    iceServers: [
-      {
-        urls: ["turn:13.250.13.83:3478?transport=udp"],
-        username: "YzYNCouZM1mhqhmseWk6",
-        credential: "YzYNCouZM1mhqhmseWk6",
-      },
-    ],
-  });
+  peerMap.set(
+    fromId,
+    new RTCPeerConnection({
+      iceServers: [
+        {
+          urls: ["turn:13.250.13.83:3478?transport=udp"],
+          username: "YzYNCouZM1mhqhmseWk6",
+          credential: "YzYNCouZM1mhqhmseWk6",
+        },
+      ],
+    })
+  );
 
-  peerMap[fromId].addEventListener("icecandidate", (data) => {
+  peerMap.get(fromId).addEventListener("icecandidate", (data) => {
     handleIce(data, fromId);
   });
-  peerMap[fromId].addEventListener("addstream", (data) => {
-    handleAddStream(data, fromId);
-  });
-  peerMap[fromId].addEventListener("track", (data) => {
+  peerMap.get(fromId).addEventListener("track", (data) => {
     handleTrack(data, fromId);
   });
 
   myStream
     .getTracks()
-    .forEach((track) => peerMap[fromId].addTrack(track, myStream));
+    .forEach((track) => peerMap.get(fromId).addTrack(track, myStream));
 }
 
 function handleIce(data, fromId) {
   // send candidates to other browser
   console.log(`sent candidate to ${fromId}`);
   socket.emit("ice", data.candidate, fromId);
-}
-
-function handleAddStream(data, fromId) {
-  let video = document.getElementById(`${fromId}`);
-  if (!video) {
-    video = document.createElement("video");
-    video.id = fromId;
-    video.width = 100;
-    video.height = 100;
-    video.autoplay = true;
-    video.playsInline = true;
-
-    streamDiv.appendChild(video);
-  }
-
-  console.log(`handleAddStream from ${fromId}`);
-  video.srcObject = data.stream;
 }
 
 function handleTrack(data, fromId) {
