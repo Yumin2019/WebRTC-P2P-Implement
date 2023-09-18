@@ -246,7 +246,9 @@ socket.on("sendAnswer", async (answer) => {
 
 socket.on("recvAnswer", async (answer, sendId) => {
   console.log("got recvAnswer from server");
-  await recvPeerMap.get(sendId).setRemoteDescription(answer);
+  await recvPeerMap
+    .get(sendId)
+    .setRemoteDescription(new RTCSessionDescription(answer));
 });
 
 socket.on("bye", (fromId) => {

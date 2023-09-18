@@ -28,7 +28,7 @@ let streamMap = new Map();
 function getUserRoomList(socket) {
   let rooms = socket.rooms;
   rooms.delete(socket.id);
-  return rooms;
+  return [...rooms];
 }
 
 wsServer.on("connection", (socket) => {
@@ -121,9 +121,16 @@ wsServer.on("connection", (socket) => {
     });
 
     recvPeer.addEventListener("track", (data) => {
+      console.log("recvPeer track");
       let rooms = getUserRoomList(socket);
+      console.log(rooms);
+
       if (!streamMap.has(rooms[0])) {
         streamMap.set(rooms[0], new Map());
+      }
+
+      if (streamMap.get(rooms[0]).has(socket.id)) {
+        return;
       }
 
       // Stream 정보를 추가하고 다른 클라에게 알린다.
