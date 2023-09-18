@@ -53,10 +53,7 @@ wsServer.on("connection", (socket) => {
 
   socket.on("recvCandidate", async (candidate, sendId) => {
     if (candidate) {
-      await sendPeerMap
-        .get(sendId)
-        .get(socket.id)
-        .addIceCandidate(new wrtc.RTCIceCandidate(candidate));
+      sendPeerMap.get(sendId).get(socket.id).addIceCandidate(candidate);
     }
   });
 
@@ -69,9 +66,7 @@ wsServer.on("connection", (socket) => {
 
   socket.on("sendCandidate", async (candidate) => {
     if (candidate) {
-      await recvPeerMap
-        .get(socket.id)
-        .addIceCandidate(new wrtc.RTCIceCandidate(candidate));
+      recvPeerMap.get(socket.id).addIceCandidate(candidate);
     }
   });
 
@@ -144,12 +139,12 @@ wsServer.on("connection", (socket) => {
   async function createRecvAnswer(offer) {
     let recvPeer = recvPeerMap.get(socket.id);
 
-    await recvPeer.setRemoteDescription(offer);
+    recvPeer.setRemoteDescription(offer);
     const answer = await recvPeer.createAnswer({
       offerToReceiveVideo: true,
       offerToReceiveAudio: true,
     });
-    await recvPeer.setLocalDescription(answer);
+    recvPeer.setLocalDescription(answer);
 
     console.log(`sent the sendAnswer to ${socket.id}`);
     socket.emit("sendAnswer", answer);
@@ -188,12 +183,12 @@ wsServer.on("connection", (socket) => {
   async function createSendAnswer(offer, sendId) {
     let sendPeer = sendPeerMap.get(sendId).get(socket.id);
 
-    await sendPeer.setRemoteDescription(offer);
+    sendPeer.setRemoteDescription(offer);
     const answer = await sendPeer.createAnswer({
       offerToReceiveVideo: false,
       offerToReceiveAudio: false,
     });
-    await sendPeer.setLocalDescription(answer);
+    sendPeer.setLocalDescription(answer);
 
     console.log(`sent the recvAnswer to ${socket.id}`);
     socket.emit("recvAnswer", answer, sendId);

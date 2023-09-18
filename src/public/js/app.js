@@ -169,7 +169,7 @@ async function createSendOffer() {
     offerToReceiveAudio: false,
   });
 
-  await sendPeer.setLocalDescription(new RTCSessionDescription(offer));
+  sendPeer.setLocalDescription(offer);
   socket.emit("sendOffer", offer);
 }
 
@@ -231,9 +231,7 @@ async function creatRecvOffer(sendId) {
     offerToReceiveAudio: true,
   });
 
-  await recvPeerMap
-    .get(sendId)
-    .setLocalDescription(new RTCSessionDescription(offer));
+  recvPeerMap.get(sendId).setLocalDescription(offer);
 
   console.log(`send recvOffer to server`);
   socket.emit("recvOffer", offer, sendId);
@@ -241,14 +239,12 @@ async function creatRecvOffer(sendId) {
 
 socket.on("sendAnswer", async (answer) => {
   console.log("got sendAnswer from server");
-  await sendPeer.setRemoteDescription(new RTCSessionDescription(answer));
+  sendPeer.setRemoteDescription(answer);
 });
 
 socket.on("recvAnswer", async (answer, sendId) => {
   console.log("got recvAnswer from server");
-  await recvPeerMap
-    .get(sendId)
-    .setRemoteDescription(new RTCSessionDescription(answer));
+  recvPeerMap.get(sendId).setRemoteDescription(answer);
 });
 
 socket.on("bye", (fromId) => {
