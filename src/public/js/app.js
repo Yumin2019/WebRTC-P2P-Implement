@@ -131,7 +131,7 @@ welcomeForm.addEventListener("submit", handleWelcomeSubmit);
 socket.on("welcome", async () => {
   console.log("someone joined");
 
-  // 들어온 놈이 실행하는 코드
+  // 먼저 방에 있던 클라가 이벤트를 받는다.
   const offer = await myPeerConnection.createOffer();
   myPeerConnection.setLocalDescription(offer);
   console.log("sent to the offer");
@@ -169,7 +169,6 @@ function makeConnection() {
   });
   myPeerConnection.addEventListener("track", handleTrack);
   myPeerConnection.addEventListener("icecandidate", handleIce);
-  myPeerConnection.addEventListener("addstream", handleAddStream);
   myStream
     .getTracks()
     .forEach((track) => myPeerConnection.addTrack(track, myStream));
@@ -179,11 +178,6 @@ function handleIce(data) {
   // send candidates to other browser
   console.log("sent candidate");
   socket.emit("ice", data.candidate, roomName);
-}
-
-function handleAddStream(data) {
-  const peerFace = document.getElementById("peerFace");
-  peerFace.srcObject = data.stream;
 }
 
 function handleTrack(data) {
