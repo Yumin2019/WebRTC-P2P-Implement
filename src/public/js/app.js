@@ -147,7 +147,7 @@ socket.on("user_list", (idList) => {
 });
 
 socket.on("recvCandidate", (candidate, sendId) => {
-  recvPeerMap[sendId].addIceCandidate(candidate);
+  recvPeerMap.get(sendId).addIceCandidate(candidate);
 });
 
 socket.on("sendCandidate", (candidate) => {
@@ -200,34 +200,37 @@ function createSendPeer() {
 }
 
 function createRecvPeer(sendId) {
-  recvPeerMap[sendId] = new RTCPeerConnection({
-    iceServers: [
-      {
-        urls: ["turn:13.250.13.83:3478?transport=udp"],
-        username: "YzYNCouZM1mhqhmseWk6",
-        credential: "YzYNCouZM1mhqhmseWk6",
-      },
-    ],
-  });
+  recvPeerMap.set(
+    sendId,
+    new RTCPeerConnection({
+      iceServers: [
+        {
+          urls: ["turn:13.250.13.83:3478?transport=udp"],
+          username: "YzYNCouZM1mhqhmseWk6",
+          credential: "YzYNCouZM1mhqhmseWk6",
+        },
+      ],
+    })
+  );
 
-  recvPeerMap[sendId].addEventListener("icecandidate", (data) => {
+  recvPeerMap.get(sendId).addEventListener("icecandidate", (data) => {
     console.log(`sent recvCandidate to server`);
     socket.emit("recvCandidate", data.candidate, sendId);
   });
 
-  recvPeerMap[sendId].addEventListener("track", (data) => {
+  recvPeerMap.get(sendId).addEventListener("track", (data) => {
     handleTrack(data, sendId);
   });
 }
 
 function creatRecvOffer(sendId) {
   console.log(`createRecvOffer sendId = ${sendId}`);
-  const offer = recvPeerMap[sendId].createOffer({
+  const offer = recvPeerMap.get(sendId).createOffer({
     offerToReceiveVideo: true,
     offerToReceiveAudio: true,
   });
 
-  recvPeerMap[sendId].setLocalDescription(offer);
+  recvPeerMap.get(sendId).setLocalDescription(offer);
 
   console.log(`send recvOffer to server`);
   socket.emit("recvOffer", offer, sendId);
@@ -238,16 +241,14 @@ socket.on("sendAnswer", (answer) => {
 });
 
 socket.on("recvAnswer", (answer, sendId) => {
-  recvPeerMap[sendId].setRemoteDescription(answer);
+  recvPeerMap.get(sendId).setRemoteDescription(answer);
 });
 
 socket.on("bye", (fromId) => {
   // 나간 유저의 정보를 없앤다.
   console.log("bye " + fromId);
-  peerMap[fromId] = undefined;
-
-  recvPeerMap[fromId].close();
-  recvPeerMap[fromId] = null;
+  recvPeerMap.get(fromId).close();
+  recvPeerMap.delete(fromId);
 
   let video = document.getElementById(`${fromId}`);
   streamDiv.removeChild(video);

@@ -32,12 +32,13 @@ function getUserRoomList(socket) {
 
 wsServer.on("connection", (socket) => {
   socket.on("join_room", (roomName) => {
-    let idList = wsServer.sockets.adapter.rooms.get(roomName).map((s) => s.id);
+    let room = wsServer.sockets.adapter.rooms.get(roomName);
+    let idList = room ? room.map((s) => s.id) : [];
+
+    console.log(idList);
+    socket.emit("user_list", idList);
 
     console.log("join_room id = " + socket.id);
-    console.log(idList);
-
-    socket.to(socket.id).emit("user_list", idList);
     socket.join(roomName);
   });
 
@@ -50,7 +51,7 @@ wsServer.on("connection", (socket) => {
   });
 
   socket.on("recvCandidate", (candidate, sendId) => {
-    sendPeerMap[sendId][socket.id].addIceCandidate(candidate);
+    sendPeerMap.get(sendId).get(socket.id).addIceCandidate(candidate);
   });
 
   socket.on("sendOffer", (offer) => {
@@ -61,7 +62,7 @@ wsServer.on("connection", (socket) => {
   });
 
   socket.on("sendCandidate", (candidate) => {
-    recvPeerMap[socket.id].addIceCandidate(candidate);
+    recvPeerMap.get(socket.id).addIceCandidate(candidate);
   });
 
   socket.on("disconnecting", () => {
@@ -71,18 +72,18 @@ wsServer.on("connection", (socket) => {
     console.log(`${id} left room`);
     console.log(rooms);
 
-    sendPeerMap[id].forEach((value, key) => {
+    sendPeerMap.get(id).forEach((value, key) => {
       value.close();
-      value = null;
     });
-    sendPeerMap[id] = null;
 
-    recvPeerMap[id].close();
-    recvPeerMap[id] = null;
+    sendPeerMap.delete(id);
+
+    recvPeerMap.get(id).close();
+    recvPeerMap.delete(id);
 
     rooms.forEach((room) => {
       socket.to(room).emit("bye", id);
-      streamMap[room][id] = null;
+      streamMap.get(room).delete(id);
     });
   });
 
@@ -104,20 +105,20 @@ wsServer.on("connection", (socket) => {
 
     recvPeer.addEventListener("track", (data) => {
       let rooms = getUserRoomList(socket);
-      if (!streamMap[rooms[0]]) {
-        streamMap[rooms[0]] = new Map();
+      if (!streamMap.has(rooms[0])) {
+        streamMap.set(rooms[0], new Map());
       }
 
       // Stream 정보를 추가하고 다른 클라에게 알린다.
-      streamMap[rooms[0]][socket.id] = data.streams[0];
+      streamMap.get(rooms[0]).set(socket.id, data.streams[0]);
       socket.to(rooms[0]).emit("newStream", socket.id);
     });
 
-    recvPeerMap[socket.id] = recvPeer;
+    recvPeerMap.set(socket.id, recvPeer);
   }
 
   async function createRecvAnswer(socket, offer) {
-    let recvPeer = recvPeerMap[socket.id];
+    let recvPeer = recvPeerMap.get(socket.id);
 
     recvPeer.setRemoteDescription(offer);
     const answer = await recvPeer.createAnswer({
@@ -147,21 +148,21 @@ wsServer.on("connection", (socket) => {
     });
 
     let rooms = getUserRoomList(socket);
-    let stream = streamMap[rooms[0]][sendId];
+    let stream = streamMap.get(rooms[0]).get(sendId);
 
     stream.getTracks().forEach((track) => {
       sendPeer.addTrack(track, stream);
     });
 
-    if (!sendPeerMap[sendId]) {
-      sendPeerMap[sendId] = new Map();
+    if (!sendPeerMap.has(sendId)) {
+      sendPeerMap.set(sendId, new map());
     }
 
-    sendPeerMap[sendId][socket.id] = sendPeer;
+    sendPeerMap.get(sendId).set(socket.id, sendPeer);
   }
 
   async function createSendAnswer(offer, sendId) {
-    let sendPeer = sendPeerMap[sendId][socket.id];
+    let sendPeer = sendPeerMap.get(sendId).get(socket.id);
 
     sendPeer.setRemoteDescription(offer);
     const answer = await sendPeer.createAnswer({
