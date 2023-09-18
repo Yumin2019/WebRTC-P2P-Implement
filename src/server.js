@@ -1,6 +1,7 @@
 import http from "http";
 import SocketIO from "socket.io";
 import express from "express";
+import wrtc from "wrtc";
 
 const app = express();
 app.set("view engine", "pug");
@@ -33,7 +34,7 @@ function getUserRoomList(socket) {
 wsServer.on("connection", (socket) => {
   socket.on("join_room", (roomName) => {
     let room = wsServer.sockets.adapter.rooms.get(roomName);
-    let idList = room ? room.map((s) => s.id) : [];
+    let idList = room ? [...room] : [];
 
     console.log(idList);
     socket.emit("user_list", idList);
@@ -46,23 +47,32 @@ wsServer.on("connection", (socket) => {
     console.log(`got recvOffer from ${socket.id}`);
 
     // recvPeer에 대응하여 sendPeer를 생성한다.
-    createSendPeer(socket, sendId);
-    createSendAnswer(socket, offer, sendId);
+    createSendPeer(sendId);
+    createSendAnswer(offer, sendId);
   });
 
-  socket.on("recvCandidate", (candidate, sendId) => {
-    sendPeerMap.get(sendId).get(socket.id).addIceCandidate(candidate);
+  socket.on("recvCandidate", async (candidate, sendId) => {
+    if (candidate) {
+      await sendPeerMap
+        .get(sendId)
+        .get(socket.id)
+        .addIceCandidate(new wrtc.RTCIceCandidate(candidate));
+    }
   });
 
   socket.on("sendOffer", (offer) => {
     console.log(`got sendOffer from ${socket.id}`);
 
-    createRecvPeer(socket);
-    createRecvAnswer(socket, offer);
+    createRecvPeer();
+    createRecvAnswer(offer);
   });
 
-  socket.on("sendCandidate", (candidate) => {
-    recvPeerMap.get(socket.id).addIceCandidate(candidate);
+  socket.on("sendCandidate", async (candidate) => {
+    if (candidate) {
+      await recvPeerMap
+        .get(socket.id)
+        .addIceCandidate(new wrtc.RTCIceCandidate(candidate));
+    }
   });
 
   socket.on("disconnecting", () => {
@@ -72,23 +82,30 @@ wsServer.on("connection", (socket) => {
     console.log(`${id} left room`);
     console.log(rooms);
 
-    sendPeerMap.get(id).forEach((value, key) => {
-      value.close();
-    });
+    if (sendPeerMap.has(id)) {
+      sendPeerMap.get(id).forEach((value, key) => {
+        value.close();
+      });
 
-    sendPeerMap.delete(id);
+      sendPeerMap.delete(id);
+    }
 
-    recvPeerMap.get(id).close();
-    recvPeerMap.delete(id);
+    if (recvPeerMap.has(id)) {
+      recvPeerMap.get(id).close();
+      recvPeerMap.delete(id);
+    }
 
     rooms.forEach((room) => {
       socket.to(room).emit("bye", id);
-      streamMap.get(room).delete(id);
+
+      if (streamMap.has(room)) {
+        streamMap.get(room).delete(id);
+      }
     });
   });
 
-  function createRecvPeer(socket) {
-    let recvPeer = new RTCPeerConnection({
+  function createRecvPeer() {
+    let recvPeer = new wrtc.RTCPeerConnection({
       iceServers: [
         {
           urls: ["turn:13.250.13.83:3478?transport=udp"],
@@ -117,22 +134,22 @@ wsServer.on("connection", (socket) => {
     recvPeerMap.set(socket.id, recvPeer);
   }
 
-  async function createRecvAnswer(socket, offer) {
+  async function createRecvAnswer(offer) {
     let recvPeer = recvPeerMap.get(socket.id);
 
-    recvPeer.setRemoteDescription(offer);
+    await recvPeer.setRemoteDescription(offer);
     const answer = await recvPeer.createAnswer({
       offerToReceiveVideo: true,
       offerToReceiveAudio: true,
     });
-    recvPeer.setLocalDescription(answer);
+    await recvPeer.setLocalDescription(answer);
 
     console.log(`sent the sendAnswer to ${socket.id}`);
     socket.emit("sendAnswer", answer);
   }
 
   function createSendPeer(sendId) {
-    let sendPeer = new RTCPeerConnection({
+    let sendPeer = new wrtc.RTCPeerConnection({
       iceServers: [
         {
           urls: ["turn:13.250.13.83:3478?transport=udp"],
@@ -155,7 +172,7 @@ wsServer.on("connection", (socket) => {
     });
 
     if (!sendPeerMap.has(sendId)) {
-      sendPeerMap.set(sendId, new map());
+      sendPeerMap.set(sendId, new Map());
     }
 
     sendPeerMap.get(sendId).set(socket.id, sendPeer);
@@ -164,12 +181,12 @@ wsServer.on("connection", (socket) => {
   async function createSendAnswer(offer, sendId) {
     let sendPeer = sendPeerMap.get(sendId).get(socket.id);
 
-    sendPeer.setRemoteDescription(offer);
+    await sendPeer.setRemoteDescription(offer);
     const answer = await sendPeer.createAnswer({
       offerToReceiveVideo: false,
       offerToReceiveAudio: false,
     });
-    sendPeer.setLocalDescription(answer);
+    await sendPeer.setLocalDescription(answer);
 
     console.log(`sent the recvAnswer to ${socket.id}`);
     socket.emit("recvAnswer", answer, sendId);

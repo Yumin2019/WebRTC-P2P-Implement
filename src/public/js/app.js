@@ -146,29 +146,30 @@ socket.on("user_list", (idList) => {
   createSendOffer();
 });
 
-socket.on("recvCandidate", (candidate, sendId) => {
+socket.on("recvCandidate", async (candidate, sendId) => {
+  console.log("got recvCandidate from server");
   recvPeerMap.get(sendId).addIceCandidate(candidate);
 });
 
-socket.on("sendCandidate", (candidate) => {
+socket.on("sendCandidate", async (candidate) => {
+  console.log("got sendCandidate from server");
   sendPeer.addIceCandidate(candidate);
 });
 
 socket.on("newStream", (id) => {
+  console.log(`newStream id=${id}`);
   createRecvPeer(id);
   creatRecvOffer(id);
 });
 
-function createSendOffer() {
+async function createSendOffer() {
   console.log(`createSendOffer`);
-  const offer = sendPeer.createOffer({
+  const offer = await sendPeer.createOffer({
     offerToReceiveVideo: false,
     offerToReceiveAudio: false,
   });
 
-  sendPeer.setLocalDescription(offer);
-
-  console.log(`send sendOffer to server`);
+  await sendPeer.setLocalDescription(new RTCSessionDescription(offer));
   socket.emit("sendOffer", offer);
 }
 
@@ -223,25 +224,29 @@ function createRecvPeer(sendId) {
   });
 }
 
-function creatRecvOffer(sendId) {
+async function creatRecvOffer(sendId) {
   console.log(`createRecvOffer sendId = ${sendId}`);
-  const offer = recvPeerMap.get(sendId).createOffer({
+  const offer = await recvPeerMap.get(sendId).createOffer({
     offerToReceiveVideo: true,
     offerToReceiveAudio: true,
   });
 
-  recvPeerMap.get(sendId).setLocalDescription(offer);
+  await recvPeerMap
+    .get(sendId)
+    .setLocalDescription(new RTCSessionDescription(offer));
 
   console.log(`send recvOffer to server`);
   socket.emit("recvOffer", offer, sendId);
 }
 
-socket.on("sendAnswer", (answer) => {
-  sendPeer.setRemoteDescription(answer);
+socket.on("sendAnswer", async (answer) => {
+  console.log("got sendAnswer from server");
+  await sendPeer.setRemoteDescription(new RTCSessionDescription(answer));
 });
 
-socket.on("recvAnswer", (answer, sendId) => {
-  recvPeerMap.get(sendId).setRemoteDescription(answer);
+socket.on("recvAnswer", async (answer, sendId) => {
+  console.log("got recvAnswer from server");
+  await recvPeerMap.get(sendId).setRemoteDescription(answer);
 });
 
 socket.on("bye", (fromId) => {
